@@ -1,0 +1,117 @@
+﻿@page "/"
+@using ImageAnalysisClient;
+@using Newtonsoft.Json;
+
+<h3>Image Upload</h3>
+
+<InputFile OnChange="HandleFileChange" />
+<img src="@imageUrl" alt="Uploaded Image" style="max-width: 100%;" />
+
+<button @onclick="ModerateImage">Send Image to External API</button>
+@if (apiOutput != null)
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Key</th>
+                <th>Explicit Categories</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var kvp in apiOutput)
+            {
+                <tr>
+                    <td>@kvp.Key</td>
+                    <td>
+                        <ul>
+                            @foreach (var explicitCategory in kvp.Value)
+                            {
+                                <li>@explicitCategory.Name</li>
+                                <!-- Add more properties as needed -->
+                            }
+                        </ul>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>No data available.</p>
+}
+@code {
+    string imageUrl;
+    byte[] imageBytes;
+    Dictionary<string, List<ExplicitCategory>> apiOutput;
+    async Task HandleFileChange(InputFileChangeEventArgs e)
+    {
+        var imageFile = e.File;
+        if (imageFile != null)
+        {
+            // Get the file content as a byte array
+            imageBytes = new byte[imageFile.Size];
+            // 10MB limit
+            await imageFile.OpenReadStream(maxAllowedSize: 1024 * 1024 * 10).ReadAsync(imageBytes);
+            // Convert the byte array to a base64 string for displaying the image
+            imageUrl = $"data:{imageFile.ContentType};base64,{Convert.ToBase64String(imageBytes)}";
+        }
+    }
+
+    async Task ModerateImage()
+    {
+
+        if (imageBytes != null)
+        {
+            using var client = new HttpClient();
+
+            // image analysis API
+            var apiEndpoint = "http://localhost:7030/api/ImageContentFunction";
+
+            // Create a MultipartFormDataContent to send the image as a form input
+            var content = new MultipartFormDataContent();
+            var imageContent = new ByteArrayContent(imageBytes);
+            imageContent.Headers.Add("Content-Type", "application/octet-stream");
+
+            // Add the image file as a form input named "image"
+            content.Add(imageContent, "image", "image.jpg");
+
+            // Send the image to the external API
+            var response = await client.PostAsync(apiEndpoint, content);
+
+            // Check the response status and handle accordingly
+            if (response.IsSuccessStatusCode)
+            {
+
+                var contentString = await response.Content.ReadAsStringAsync();
+
+
+                // Deserialize the JSON content to a specific object type
+                var resultObject = JsonConvert.DeserializeObject <Dictionary<string, List<ExplicitCategory>>> (contentString);
+                apiOutput = resultObject;
+                foreach (var kvp in resultObject)
+                {
+                    Console.WriteLine($"Key: {kvp.Key}");
+                    foreach (var explicitCategory in kvp.Value)
+                    {
+                        Console.WriteLine($" - {explicitCategory.Name}"); // Replace SomeProperty with the actual property name
+                                                                                  // Add more properties as needed
+                    }
+                }
+                
+
+               
+            }
+            else
+            {
+                // Handle error response
+                Console.WriteLine($"Error: {response.StatusCode}");
+            }
+        }
+        else
+        {
+            // Handle the case where no image has been selected
+            Console.WriteLine("No image selected.");
+        }
+    }
+}
